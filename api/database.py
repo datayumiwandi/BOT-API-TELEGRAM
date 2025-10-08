@@ -1,6 +1,5 @@
-# api/database.py
-
 import sys
+import certifi  # <-- Pastikan import ini ada
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ConfigurationError
 from datetime import datetime
@@ -8,9 +7,10 @@ from . import settings
 
 # --- Inisialisasi Koneksi ke MongoDB ---
 try:
-    # Coba inisialisasi koneksi ke MongoDB
-    client = MongoClient(settings.MONGO_URI)
-    
+    # Menggunakan sertifikat dari certifi untuk koneksi SSL yang stabil
+    ca = certifi.where()
+    client = MongoClient(settings.MONGO_URI, tlsCAFile=ca)
+
     # Perintah 'ping' akan melempar exception jika koneksi gagal
     client.admin.command('ping')
     print("✅ Koneksi ke MongoDB berhasil.")
@@ -18,12 +18,12 @@ try:
 except ConfigurationError as e:
     # Error ini terjadi jika MONGO_URI tidak valid
     print(f"❌ KESALAHAN KONFIGURASI MONGO_URI: {e}", file=sys.stderr)
-    print("➡️ Pastikan MONGO_URI Anda diformat dengan benar dan password tidak mengandung karakter spesial yang belum di-encode.", file=sys.stderr)
+    print("➡️ Pastikan MONGO_URI Anda diformat dengan benar.", file=sys.stderr)
     client = None
 except ConnectionFailure as e:
     # Error ini terjadi jika server tidak bisa dijangkau (masalah Network Access/Firewall)
     print(f"❌ KESALAHAN KONEKSI MONGO: {e}", file=sys.stderr)
-    print("➡️ Pastikan Anda sudah mengizinkan akses dari semua IP (0.0.0.0/0) di MongoDB Atlas Network Access.", file=sys.stderr)
+    print("➡️ Pastikan Anda sudah mengizinkan akses dari semua IP (0.0.0.0/0) di MongoDB Atlas.", file=sys.stderr)
     client = None
 except Exception as e:
     # Menangkap error tak terduga lainnya
@@ -36,7 +36,6 @@ if client:
     users_collection = db.users
 else:
     # Jika koneksi gagal, buat placeholder agar aplikasi tidak crash total
-    # meskipun semua operasi database akan gagal.
     print("🔴 Aplikasi berjalan tanpa koneksi database. Semua fungsi database akan gagal.", file=sys.stderr)
     db = None
     users_collection = None
@@ -56,11 +55,17 @@ def ensure_user(user_id, profile=None):
     user_data = get_user(user_id)
     if not user_data:
         user_data = {
-            'user_id': str(user_id), 'name': profile.get('first_name', 'User'),
-            'xp': 0, 'level': 1, 'mood': 'neutral', 'quests': [],
+            'user_id': str(user_id),
+            'name': profile.get('first_name', 'User'),
+            'xp': 0,
+            'level': 1,
+            'mood': 'neutral',
+            'quests': [],
             'kota_shalat': settings.DEFAULT_KOTA_SHALAT,
             'created_at': datetime.now().isoformat(),
-            'prayer_schedule': None, 'schedule_date': None, **profile
+            'prayer_schedule': None,
+            'schedule_date': None,
+            **profile
         }
         users_collection.insert_one(user_data)
     return user_data
