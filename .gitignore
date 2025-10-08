@@ -12,3 +12,4 @@ venv/
 # File rahasia
 .env
 db.json
+pass.txt
