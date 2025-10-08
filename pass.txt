@@ -1,5 +1,0 @@
-W2R0pGuetLDQAkAv | P53hhQMkOJ7ESMU7
-wandiamuntai_db_user | MAYUMIBOT
-pass dan user monggoDB
-
-https://api.telegram.org/bot8310656463:AAFfBKwjryh4--VPd5sd8DvPqQFqded8c8w/setWebhook?url=https://bot-api-telegram.vercel.app/webhook
