@@ -1,0 +1,14 @@
+# File: .gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+
+# File rahasia
+.env
+db.json
