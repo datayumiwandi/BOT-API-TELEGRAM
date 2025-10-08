@@ -5,9 +5,8 @@ import os
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "GANTI_DENGAN_TOKEN_BOT_ANDA")
 CRON_SECRET = os.getenv("CRON_SECRET", "RAHASIA-ANDA-UNTUK-CRON")
 
-# MongoDB
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
-DB_NAME = "yui_bot_db"
+# Database (menggunakan PostgreSQL dengan SQLAlchemy)
+DATABASE_URL = os.getenv("DATABASE_URL", "postgres://user:password@host:port/dbname")
 
 # Default values
 DEFAULT_ALLOWED_USERS = ["7549219256", "6606294583"]
@@ -18,4 +17,3 @@ DEFAULT_KOTA_SHALAT = '2106'
 CUACA_URL = "https://api.bmkg.go.id/publik/prakiraan-cuaca?adm4=63.08.05.2016"
 GEMPA_URL = "https://data.bmkg.go.id/DataMKG/TEWS/autogempa.json"
 SHALAT_BASE = "https://api.myquran.com/v2/sholat/jadwal"
-

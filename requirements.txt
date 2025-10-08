@@ -1,6 +1,5 @@
 flask
 requests
 pytz
-pymongo[srv]
-dnspython
-certifi
+SQLAlchemy
+psycopg2-binary

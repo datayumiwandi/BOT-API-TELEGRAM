@@ -5,36 +5,28 @@ from . import database as db
 from . import utils
 from . import settings
 
-def get_user_prayer_schedule(user_data):
+def get_user_prayer_schedule(user):
     """
     Mengambil jadwal shalat untuk user.
-    Pertama, cek cache di data user. Jika tidak ada atau sudah usang, ambil dari API.
+    Pertama, cek cache di data user. Jika tidak, ambil dari API.
     """
     tz = pytz.timezone(settings.DEFAULT_TIMEZONE)
     today_str = datetime.now(tz).strftime('%Y-%m-%d')
 
-    if user_data.get('schedule_date') == today_str and user_data.get('prayer_schedule'):
-        return user_data['prayer_schedule']
+    if user.schedule_date == today_str and user._prayer_schedule:
+        return user._prayer_schedule
 
-    print(f"Mengambil jadwal shalat dari API untuk user {user_data['user_id']}...")
-    prayer_data = utils.get_prayer_time_from_api(user_data.get('kota_shalat', settings.DEFAULT_KOTA_SHALAT))
+    print(f"Mengambil jadwal shalat dari API untuk user {user.user_id}...")
+    prayer_data = utils.get_prayer_time_from_api(user.kota_shalat)
 
     if prayer_data['success']:
-        # Simpan jadwal dan tanggalnya sebagai cache
+        # Simpan jadwal dan reset pengingat lama
         update_data = {
-            'prayer_schedule': prayer_data['jadwal'],
-            'schedule_date': today_str
+            '_prayer_schedule': prayer_data['jadwal'],
+            'schedule_date': today_str,
+            '_reminder_status': {}  # Reset status pengingat
         }
-        # Hapus status pengingat dari hari kemarin
-        keys_to_unset = {k: "" for k in user_data if k.startswith('reminded_')}
-        if keys_to_unset:
-            db.users_collection.update_one(
-                {'user_id': user_data['user_id']},
-                {'$set': update_data, '$unset': keys_to_unset}
-            )
-        else:
-            db.update_user(user_data['user_id'], update_data)
-
+        db.update_user(user.user_id, update_data)
         return prayer_data['jadwal']
 
     return None
@@ -50,9 +42,6 @@ def check_and_send_reminders():
     today_str = now.strftime('%Y-%m-%d')
 
     for user in all_users:
-        user_id = user['user_id']
-        chat_id = user_id
-
         # Dapatkan jadwal (dari cache atau API)
         schedule = get_user_prayer_schedule(user)
         if not schedule:
@@ -70,20 +59,24 @@ def check_and_send_reminders():
 
             time_diff_seconds = (prayer_time - now).total_seconds()
             
-            # Kirim pengingat jika waktu shalat antara 19 dan 20 menit dari sekarang
             is_reminder_time = 19 * 60 < time_diff_seconds <= 20 * 60
-            reminder_key = f"reminded_{prayer_name}_{today_str}"
-            already_reminded = user.get(reminder_key, False)
+            
+            # Cek status pengingat
+            reminder_key = f"reminded_{prayer_name}"
+            # Pastikan _reminder_status tidak None sebelum diakses
+            reminder_status = user._reminder_status or {}
+            already_reminded = reminder_status.get(reminder_key, False)
 
             if is_reminder_time and not already_reminded:
-                print(f"Mengirim pengingat {prayer_name} ke user {user_id}")
+                print(f"Mengirim pengingat {prayer_name} ke user {user.user_id}")
                 message = (
                     f"🔔 <b>Pengingat Shalat!</b>\n\n"
                     f"20 menit lagi akan masuk waktu <b>{prayer_name.capitalize()}</b> ({time_str})."
                 )
-                utils.send_telegram_message(chat_id, message)
+                utils.send_telegram_message(user.user_id, message)
 
                 # Tandai pengingat sudah dikirim
-                db.update_user(user_id, {reminder_key: True})
+                reminder_status[reminder_key] = True
+                db.update_user(user.user_id, {'_reminder_status': reminder_status})
 
     return "Scheduler finished."

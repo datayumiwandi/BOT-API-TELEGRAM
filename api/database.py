@@ -1,84 +1,117 @@
-import sys
-import certifi  # <-- Pastikan import ini ada
-from pymongo import MongoClient
-from pymongo.errors import ConnectionFailure, ConfigurationError
+# api/database.py
+from sqlalchemy import create_engine, Column, String, Integer, JSON, DateTime
+from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.exc import SQLAlchemyError
 from datetime import datetime
+import json
 from . import settings
 
-# --- Inisialisasi Koneksi ke MongoDB ---
+# --- Konfigurasi SQLAlchemy ---
 try:
-    # Menggunakan sertifikat dari certifi untuk koneksi SSL yang stabil
-    ca = certifi.where()
-    client = MongoClient(settings.MONGO_URI, tlsCAFile=ca)
-
-    # Perintah 'ping' akan melempar exception jika koneksi gagal
-    client.admin.command('ping')
-    print("✅ Koneksi ke MongoDB berhasil.")
-
-except ConfigurationError as e:
-    # Error ini terjadi jika MONGO_URI tidak valid
-    print(f"❌ KESALAHAN KONFIGURASI MONGO_URI: {e}", file=sys.stderr)
-    print("➡️ Pastikan MONGO_URI Anda diformat dengan benar.", file=sys.stderr)
-    client = None
-except ConnectionFailure as e:
-    # Error ini terjadi jika server tidak bisa dijangkau (masalah Network Access/Firewall)
-    print(f"❌ KESALAHAN KONEKSI MONGO: {e}", file=sys.stderr)
-    print("➡️ Pastikan Anda sudah mengizinkan akses dari semua IP (0.0.0.0/0) di MongoDB Atlas.", file=sys.stderr)
-    client = None
+    engine = create_engine(settings.DATABASE_URL)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base = declarative_base()
+    print("✅ Koneksi database SQLAlchemy siap.")
 except Exception as e:
-    # Menangkap error tak terduga lainnya
-    print(f"❌ Terjadi error tak terduga saat menghubungkan ke MongoDB: {e}", file=sys.stderr)
-    client = None
+    print(f"❌ Gagal mengkonfigurasi SQLAlchemy: {e}")
+    engine = None
+    SessionLocal = None
+    Base = None
 
-# Pastikan client tidak None sebelum membuat koneksi ke database dan collection
-if client:
-    db = client[settings.DB_NAME]
-    users_collection = db.users
-else:
-    # Jika koneksi gagal, buat placeholder agar aplikasi tidak crash total
-    print("🔴 Aplikasi berjalan tanpa koneksi database. Semua fungsi database akan gagal.", file=sys.stderr)
-    db = None
-    users_collection = None
+# --- Model/Tabel untuk User ---
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String, unique=True, index=True, nullable=False)
+    name = Column(String)
+    xp = Column(Integer, default=0)
+    level = Column(Integer, default=1)
+    kota_shalat = Column(String, default=settings.DEFAULT_KOTA_SHALAT)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Kita gunakan JSON untuk menyimpan data yang fleksibel
+    _profile_data = Column('profile_data', JSON, default={})
+    _prayer_schedule = Column('prayer_schedule', JSON, default={})
+    _reminder_status = Column('reminder_status', JSON, default={})
+    schedule_date = Column(String, default="")
 
-# --- Fungsi-fungsi Database ---
+# Buat tabel di database jika belum ada
+if engine:
+    Base.metadata.create_all(bind=engine)
 
-def get_user(user_id):
+# --- Fungsi-fungsi untuk berinteraksi dengan Database ---
+
+def get_db_session():
+    """Membuka sesi database dan menutupnya setelah selesai."""
+    if not SessionLocal:
+        return None
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+def get_user(user_id_str):
     """Mengambil data user dari database."""
-    if not users_collection: return None
-    return users_collection.find_one({'user_id': str(user_id)})
+    db_gen = get_db_session()
+    db = next(db_gen, None)
+    if db:
+        return db.query(User).filter(User.user_id == user_id_str).first()
+    return None
 
-def ensure_user(user_id, profile=None):
-    """Memastikan user ada di database. Jika tidak ada, buat baru."""
-    if not users_collection: return None
-    if profile is None: profile = {}
+def ensure_user(user_id, profile_dict=None):
+    """Memastikan user ada di database. Jika tidak, buat baru."""
+    user_id_str = str(user_id)
+    db_gen = get_db_session()
+    db = next(db_gen, None)
+    if not db:
+        return None
+        
+    user = db.query(User).filter(User.user_id == user_id_str).first()
+    if not user:
+        new_user = User(
+            user_id=user_id_str,
+            name=profile_dict.get('first_name', 'User'),
+            _profile_data=profile_dict
+        )
+        db.add(new_user)
+        try:
+            db.commit()
+            db.refresh(new_user)
+            print(f"User baru dibuat: {user_id_str}")
+            return new_user
+        except SQLAlchemyError as e:
+            print(f"Error saat membuat user baru: {e}")
+            db.rollback()
+            return None
+    return user
 
-    user_data = get_user(user_id)
-    if not user_data:
-        user_data = {
-            'user_id': str(user_id),
-            'name': profile.get('first_name', 'User'),
-            'xp': 0,
-            'level': 1,
-            'mood': 'neutral',
-            'quests': [],
-            'kota_shalat': settings.DEFAULT_KOTA_SHALAT,
-            'created_at': datetime.now().isoformat(),
-            'prayer_schedule': None,
-            'schedule_date': None,
-            **profile
-        }
-        users_collection.insert_one(user_data)
-    return user_data
-
-def update_user(user_id, data):
+def update_user(user_id, data_dict):
     """Memperbarui data user."""
-    if not users_collection: return
-    users_collection.update_one({'user_id': str(user_id)}, {'$set': data})
+    user_id_str = str(user_id)
+    db_gen = get_db_session()
+    db = next(db_gen, None)
+    if not db:
+        return
+
+    user = db.query(User).filter(User.user_id == user_id_str).first()
+    if user:
+        for key, value in data_dict.items():
+            if hasattr(user, key):
+                setattr(user, key, value)
+        try:
+            db.commit()
+        except SQLAlchemyError as e:
+            print(f"Error saat update user: {e}")
+            db.rollback()
 
 def get_all_users():
     """Mengambil semua user dari database."""
-    if not users_collection: return []
-    return list(users_collection.find({}))
+    db_gen = get_db_session()
+    db = next(db_gen, None)
+    if db:
+        return db.query(User).all()
+    return []
 
 def is_user_allowed(user_id):
     """Mengecek apakah user diizinkan."""
